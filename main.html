@@ -693,6 +693,95 @@
             margin-top: 1rem;
         }
 
+        /* Suspension Preview Styles */
+        .suspension-preview-container {
+            background: var(--gray-100);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            margin-top: 2rem;
+            border: 1px solid var(--gray-300);
+        }
+
+        .preview-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .preview-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .preview-controls {
+            display: flex;
+            gap: 0.8rem;
+        }
+
+        .preview-canvas-container {
+            position: relative;
+            width: 100%;
+            height: 300px;
+            background: linear-gradient(180deg, #87CEEB 0%, #98FB98 100%);
+            border-radius: var(--border-radius);
+            overflow: hidden;
+            border: 2px solid var(--gray-300);
+        }
+
+        #suspensionPreview {
+            width: 100%;
+            height: 100%;
+        }
+
+        .road-surface {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 40px;
+            background: linear-gradient(180deg, #654321 0%, #3D2502 100%);
+            border-top: 2px solid #2A1A01;
+        }
+
+        .preview-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-top: 1rem;
+            padding: 1rem;
+            background: var(--gray-200);
+            border-radius: var(--border-radius);
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--gray-600);
+            margin-top: 0.2rem;
+        }
+
+        .bump-indicator {
+            position: absolute;
+            bottom: 40px;
+            width: 30px;
+            height: 15px;
+            background: #FF6B6B;
+            border-radius: 4px 4px 0 0;
+            transform: translateX(-50%);
+            transition: left 0.3s ease;
+        }
+
         /* Responsive Design */
         @media (max-width: 1200px) {
             .content-grid {
@@ -737,6 +826,14 @@
                 flex: 1;
                 min-width: 110px;
                 justify-content: center;
+            }
+
+            .preview-controls {
+                flex-direction: column;
+            }
+
+            .preview-stats {
+                grid-template-columns: 1fr;
             }
         }
 
@@ -1349,6 +1446,45 @@
                                         </div>
                                     </div>
                                 </div>
+
+                                <!-- Suspension Preview Section -->
+                                <div class="suspension-preview-container">
+                                    <div class="preview-header">
+                                        <h3 class="preview-title">
+                                            <i class="fas fa-eye"></i> Suspension Preview
+                                        </h3>
+                                        <div class="preview-controls">
+                                            <button class="btn btn-primary btn-sm" id="testSuspension">
+                                                <i class="fas fa-bolt"></i> Test Suspension
+                                            </button>
+                                            <button class="btn btn-outline btn-sm" id="autoBump">
+                                                <i class="fas fa-sync"></i> Auto-bump
+                                            </button>
+                                            <button class="btn btn-light btn-sm" id="resetPreview">
+                                                <i class="fas fa-undo"></i> Reset
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="preview-canvas-container">
+                                        <canvas id="suspensionPreview"></canvas>
+                                        <div class="road-surface"></div>
+                                        <div class="bump-indicator" id="bumpIndicator" style="left: 50%;"></div>
+                                    </div>
+                                    <div class="preview-stats">
+                                        <div class="stat-item">
+                                            <div class="stat-value" id="frontTravel">0.0</div>
+                                            <div class="stat-label">Front Travel</div>
+                                        </div>
+                                        <div class="stat-item">
+                                            <div class="stat-value" id="rearTravel">0.0</div>
+                                            <div class="stat-label">Rear Travel</div>
+                                        </div>
+                                        <div class="stat-item">
+                                            <div class="stat-value" id="bodyRoll">0.0</div>
+                                            <div class="stat-label">Body Roll</div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                             <!-- Transmission Tab -->
@@ -1934,11 +2070,338 @@ physics_data: .phdata
             }
         };
 
+        // Suspension Preview System
+        class SuspensionPreview {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                this.width = this.canvas.width = this.canvas.offsetWidth;
+                this.height = this.canvas.height = this.canvas.offsetHeight;
+                
+                // Bus properties
+                this.bus = {
+                    x: this.width / 2,
+                    y: this.height / 2,
+                    width: 200,
+                    height: 80,
+                    bodyY: this.height / 2,
+                    frontSuspension: { length: 60, compression: 0, velocity: 0 },
+                    rearSuspension: { length: 60, compression: 0, velocity: 0 },
+                    roll: 0
+                };
+                
+                // Physics properties
+                this.springConstant = 0.1;
+                this.dampingFactor = 0.08;
+                this.mass = 10000;
+                this.gravity = 0.5;
+                
+                // Animation state
+                this.isAnimating = false;
+                this.autoBumpActive = false;
+                this.bumpPosition = 0.5;
+                this.bumpHeight = 0;
+                this.lastTime = 0;
+                
+                // Stats
+                this.stats = {
+                    frontTravel: 0,
+                    rearTravel: 0,
+                    bodyRoll: 0
+                };
+                
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
+            }
+            
+            resize() {
+                this.width = this.canvas.width = this.canvas.offsetWidth;
+                this.height = this.canvas.height = this.canvas.offsetHeight;
+                this.bus.bodyY = this.height / 2;
+                this.draw();
+            }
+            
+            updateSuspensionParameters() {
+                // Get current parameter values
+                const frontDamping = parseFloat(document.getElementById('damping_scaling_front_factor').value) || 0.25;
+                const rearDamping = parseFloat(document.getElementById('damping_scaling_rear_factor').value) || 1.25;
+                const swayBar = parseFloat(document.getElementById('sway_bar_stiffness_factor').value) || 3.0;
+                
+                // Update physics based on parameters
+                this.springConstant = 0.05 + (swayBar * 0.02);
+                this.dampingFactor = 0.05 + (Math.max(frontDamping, rearDamping) * 0.03);
+            }
+            
+            applyBump(intensity = 1.0) {
+                this.bumpHeight = 30 * intensity;
+                this.bus.frontSuspension.velocity -= 8 * intensity;
+                this.bus.rearSuspension.velocity -= 6 * intensity;
+            }
+            
+            update(deltaTime) {
+                if (!this.isAnimating) return;
+                
+                this.updateSuspensionParameters();
+                
+                const dt = Math.min(deltaTime, 100) / 1000; // Convert to seconds, cap at 100ms
+                
+                // Calculate forces
+                const frontSpringForce = -this.springConstant * this.bus.frontSuspension.compression;
+                const frontDampingForce = -this.dampingFactor * this.bus.frontSuspension.velocity;
+                const frontForce = frontSpringForce + frontDampingForce;
+                
+                const rearSpringForce = -this.springConstant * this.bus.rearSuspension.compression;
+                const rearDampingForce = -this.dampingFactor * this.bus.rearSuspension.velocity;
+                const rearForce = rearSpringForce + rearDampingForce;
+                
+                // Update velocities (F = ma -> a = F/m)
+                this.bus.frontSuspension.velocity += (frontForce / this.mass) * dt;
+                this.bus.rearSuspension.velocity += (rearForce / this.mass) * dt;
+                
+                // Update positions
+                this.bus.frontSuspension.compression += this.bus.frontSuspension.velocity * dt;
+                this.bus.rearSuspension.compression += this.bus.rearSuspension.velocity * dt;
+                
+                // Apply gravity and ground collision
+                const groundLevel = this.height - 40;
+                const frontWheelY = this.bus.bodyY + this.bus.frontSuspension.compression;
+                const rearWheelY = this.bus.bodyY + this.bus.rearSuspension.compression;
+                
+                if (frontWheelY > groundLevel - this.bumpHeight * Math.abs(this.bumpPosition - 0.3)) {
+                    this.bus.frontSuspension.compression = groundLevel - this.bus.bodyY - this.bumpHeight * Math.abs(this.bumpPosition - 0.3);
+                    this.bus.frontSuspension.velocity *= -0.3; // Bounce with energy loss
+                }
+                
+                if (rearWheelY > groundLevel - this.bumpHeight * Math.abs(this.bumpPosition - 0.7)) {
+                    this.bus.rearSuspension.compression = groundLevel - this.bus.bodyY - this.bumpHeight * Math.abs(this.bumpPosition - 0.7);
+                    this.bus.rearSuspension.velocity *= -0.3; // Bounce with energy loss
+                }
+                
+                // Calculate body roll based on suspension difference
+                this.bus.roll = (this.bus.frontSuspension.compression - this.bus.rearSuspension.compression) * 0.5;
+                
+                // Update stats
+                this.stats.frontTravel = Math.abs(this.bus.frontSuspension.compression).toFixed(1);
+                this.stats.rearTravel = Math.abs(this.bus.rearSuspension.compression).toFixed(1);
+                this.stats.bodyRoll = Math.abs(this.bus.roll).toFixed(1);
+                
+                this.updateStatsDisplay();
+                
+                // Gradually reduce bump height
+                this.bumpHeight *= 0.95;
+                if (this.bumpHeight < 0.1) this.bumpHeight = 0;
+                
+                // Auto-bump logic
+                if (this.autoBumpActive && Math.random() < 0.02) {
+                    this.applyBump(0.5 + Math.random() * 0.5);
+                }
+                
+                this.draw();
+            }
+            
+            updateStatsDisplay() {
+                document.getElementById('frontTravel').textContent = this.stats.frontTravel;
+                document.getElementById('rearTravel').textContent = this.stats.rearTravel;
+                document.getElementById('bodyRoll').textContent = this.stats.bodyRoll;
+            }
+            
+            draw() {
+                const ctx = this.ctx;
+                const bus = this.bus;
+                
+                // Clear canvas
+                ctx.clearRect(0, 0, this.width, this.height);
+                
+                // Draw sky gradient
+                const skyGradient = ctx.createLinearGradient(0, 0, 0, this.height);
+                skyGradient.addColorStop(0, '#87CEEB');
+                skyGradient.addColorStop(1, '#98FB98');
+                ctx.fillStyle = skyGradient;
+                ctx.fillRect(0, 0, this.width, this.height);
+                
+                // Draw road
+                ctx.fillStyle = '#654321';
+                ctx.fillRect(0, this.height - 40, this.width, 40);
+                
+                // Draw road markings
+                ctx.strokeStyle = '#FFFFFF';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([20, 15]);
+                ctx.beginPath();
+                ctx.moveTo(0, this.height - 20);
+                ctx.lineTo(this.width, this.height - 20);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                // Draw bump if active
+                if (this.bumpHeight > 0) {
+                    const bumpX = this.width * this.bumpPosition;
+                    const bumpWidth = 60;
+                    const bumpHeight = this.bumpHeight;
+                    
+                    ctx.fillStyle = '#FF6B6B';
+                    ctx.beginPath();
+                    ctx.moveTo(bumpX - bumpWidth/2, this.height - 40);
+                    ctx.quadraticCurveTo(bumpX, this.height - 40 - bumpHeight, bumpX + bumpWidth/2, this.height - 40);
+                    ctx.fill();
+                    
+                    // Update bump indicator position
+                    document.getElementById('bumpIndicator').style.left = `${bumpX}px`;
+                }
+                
+                // Calculate wheel positions with suspension
+                const frontWheelX = bus.x - bus.width * 0.35;
+                const rearWheelX = bus.x + bus.width * 0.35;
+                const frontWheelY = bus.bodyY + bus.frontSuspension.compression;
+                const rearWheelY = bus.bodyY + bus.rearSuspension.compression;
+                
+                // Draw suspension springs
+                this.drawSpring(ctx, frontWheelX, bus.bodyY, frontWheelX, frontWheelY, 15, bus.frontSuspension.compression);
+                this.drawSpring(ctx, rearWheelX, bus.bodyY, rearWheelX, rearWheelY, 15, bus.rearSuspension.compression);
+                
+                // Draw wheels
+                ctx.fillStyle = '#2C3E50';
+                ctx.beginPath();
+                ctx.arc(frontWheelX, frontWheelY, 20, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.arc(rearWheelX, rearWheelY, 20, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw wheel details
+                ctx.strokeStyle = '#34495E';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(frontWheelX, frontWheelY, 15, 0, Math.PI * 2);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.arc(rearWheelX, rearWheelY, 15, 0, Math.PI * 2);
+                ctx.stroke();
+                
+                // Draw bus body with roll
+                ctx.save();
+                ctx.translate(bus.x, bus.bodyY);
+                ctx.rotate(bus.roll * 0.01);
+                
+                // Bus body
+                ctx.fillStyle = '#3498DB';
+                ctx.fillRect(-bus.width/2, -bus.height/2, bus.width, bus.height);
+                
+                // Windows
+                ctx.fillStyle = '#1ABC9C';
+                ctx.fillRect(-bus.width/2 + 10, -bus.height/2 + 10, bus.width - 20, 25);
+                
+                // Headlights
+                ctx.fillStyle = '#F1C40F';
+                ctx.fillRect(-bus.width/2 + 5, -bus.height/2 + 5, 10, 8);
+                ctx.fillRect(-bus.width/2 + 5, bus.height/2 - 13, 10, 8);
+                
+                ctx.restore();
+                
+                // Draw suspension travel indicators
+                this.drawTravelIndicator(ctx, frontWheelX - 30, frontWheelY, bus.frontSuspension.compression);
+                this.drawTravelIndicator(ctx, rearWheelX + 30, rearWheelY, bus.rearSuspension.compression);
+            }
+            
+            drawSpring(ctx, x1, y1, x2, y2, coils, compression) {
+                ctx.strokeStyle = '#E74C3C';
+                ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
+                
+                const length = Math.abs(y2 - y1);
+                const coilHeight = length / coils;
+                
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                
+                for (let i = 0; i < coils; i++) {
+                    const yStart = y1 + i * coilHeight;
+                    const yEnd = y1 + (i + 1) * coilHeight;
+                    
+                    ctx.bezierCurveTo(
+                        x1 - 10, yStart + coilHeight * 0.3,
+                        x1 - 10, yEnd - coilHeight * 0.3,
+                        x1, yEnd
+                    );
+                }
+                
+                ctx.stroke();
+            }
+            
+            drawTravelIndicator(ctx, x, y, compression) {
+                const maxTravel = 30;
+                const travel = Math.min(Math.abs(compression) / 2, maxTravel);
+                const percentage = travel / maxTravel;
+                
+                // Color based on compression (green -> yellow -> red)
+                let color;
+                if (percentage < 0.5) {
+                    color = '#2ECC71'; // Green
+                } else if (percentage < 0.8) {
+                    color = '#F39C12'; // Yellow
+                } else {
+                    color = '#E74C3C'; // Red
+                }
+                
+                ctx.fillStyle = color;
+                ctx.fillRect(x - 5, y - travel, 10, travel);
+                
+                // Background
+                ctx.strokeStyle = '#7F8C8D';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x - 5, y - maxTravel, 10, maxTravel);
+            }
+            
+            startAnimation() {
+                if (!this.isAnimating) {
+                    this.isAnimating = true;
+                    this.lastTime = performance.now();
+                    this.animate();
+                }
+            }
+            
+            stopAnimation() {
+                this.isAnimating = false;
+            }
+            
+            animate() {
+                if (!this.isAnimating) return;
+                
+                const currentTime = performance.now();
+                const deltaTime = currentTime - this.lastTime;
+                this.lastTime = currentTime;
+                
+                this.update(deltaTime);
+                
+                requestAnimationFrame(() => this.animate());
+            }
+            
+            reset() {
+                this.bus.frontSuspension.compression = 0;
+                this.bus.frontSuspension.velocity = 0;
+                this.bus.rearSuspension.compression = 0;
+                this.bus.rearSuspension.velocity = 0;
+                this.bus.roll = 0;
+                this.bumpHeight = 0;
+                this.stats.frontTravel = '0.0';
+                this.stats.rearTravel = '0.0';
+                this.stats.bodyRoll = '0.0';
+                this.updateStatsDisplay();
+                this.draw();
+            }
+        }
+
         // Initialize the application
         document.addEventListener('DOMContentLoaded', function() {
             initializeUI();
             setupEventListeners();
             resetToDefault();
+            
+            // Initialize suspension preview
+            window.suspensionPreview = new SuspensionPreview('suspensionPreview');
+            suspensionPreview.draw(); // Initial draw
         });
 
         function initializeUI() {
@@ -1961,17 +2424,19 @@ physics_data: .phdata
                 });
             });
 
-            // Preset buttons
+            // Preset buttons - FIXED: Proper event delegation
             document.querySelectorAll('.preset-card').forEach(card => {
                 card.addEventListener('click', function() {
                     const preset = this.getAttribute('data-preset');
+                    console.log('Preset clicked:', preset); // Debug log
+                    
+                    // Update active state first
+                    document.querySelectorAll('.preset-card').forEach(c => c.classList.remove('active'));
+                    this.classList.add('active');
+                    
                     if (preset !== 'custom') {
                         applyPreset(preset);
                     }
-                    
-                    // Update active state
-                    document.querySelectorAll('.preset-card').forEach(c => c.classList.remove('active'));
-                    this.classList.add('active');
                 });
             });
 
@@ -1987,12 +2452,39 @@ physics_data: .phdata
             });
 
             document.getElementById('exportBtn').addEventListener('click', exportSIIFile);
-            document.getElementById('resetBtn').addEventListener('click', resetToDefault);
             document.getElementById('undoBtn').addEventListener('click', undo);
             document.getElementById('redoBtn').addEventListener('click', redo);
+            document.getElementById('resetBtn').addEventListener('click', resetToDefault);
             document.getElementById('themeToggle').addEventListener('click', toggleTheme);
             document.getElementById('helpBtn').addEventListener('click', showHelp);
             document.getElementById('refreshPreview').addEventListener('click', updateSIIPreview);
+
+            // Suspension preview controls - FIXED: Proper event listeners
+            document.getElementById('testSuspension').addEventListener('click', function() {
+                console.log('Test Suspension clicked'); // Debug log
+                if (window.suspensionPreview) {
+                    suspensionPreview.startAnimation();
+                    suspensionPreview.applyBump(1.0);
+                }
+            });
+
+            document.getElementById('autoBump').addEventListener('click', function() {
+                console.log('Auto-bump clicked'); // Debug log
+                if (window.suspensionPreview) {
+                    suspensionPreview.autoBumpActive = !suspensionPreview.autoBumpActive;
+                    suspensionPreview.startAnimation();
+                    this.innerHTML = suspensionPreview.autoBumpActive ? 
+                        '<i class="fas fa-pause"></i> Stop Auto-bump' : 
+                        '<i class="fas fa-sync"></i> Auto-bump';
+                }
+            });
+
+            document.getElementById('resetPreview').addEventListener('click', function() {
+                console.log('Reset Preview clicked'); // Debug log
+                if (window.suspensionPreview) {
+                    suspensionPreview.reset();
+                }
+            });
 
             // Parameter input synchronization - all parameters
             const parameters = Object.keys(presets.default);
@@ -2006,12 +2498,26 @@ physics_data: .phdata
                         number.value = this.value;
                         updateParameterDisplay(param, this.value);
                         onParameterChange(param, this.value);
+                        
+                        // Update suspension preview if suspension parameters change
+                        if (param.includes('damping') || param.includes('sway')) {
+                            if (window.suspensionPreview) {
+                                suspensionPreview.updateSuspensionParameters();
+                            }
+                        }
                     });
                     
                     number.addEventListener('input', function() {
                         slider.value = this.value;
                         updateParameterDisplay(param, this.value);
                         onParameterChange(param, this.value);
+                        
+                        // Update suspension preview if suspension parameters change
+                        if (param.includes('damping') || param.includes('sway')) {
+                            if (window.suspensionPreview) {
+                                suspensionPreview.updateSuspensionParameters();
+                            }
+                        }
                     });
                 }
             });
@@ -2031,9 +2537,15 @@ physics_data: .phdata
                 tab.classList.remove('active');
             });
             document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
+            
+            // Start suspension preview animation when suspension tab is selected
+            if (tabId === 'suspension' && window.suspensionPreview) {
+                suspensionPreview.startAnimation();
+            }
         }
 
         function applyPreset(presetName) {
+            console.log('Applying preset:', presetName); // Debug log
             if (presets[presetName]) {
                 state.currentPreset = presetName;
                 
@@ -2043,9 +2555,12 @@ physics_data: .phdata
                 // Apply preset values
                 const preset = presets[presetName];
                 for (const param in preset) {
-                    if (document.getElementById(param)) {
-                        document.getElementById(param).value = preset[param];
-                        document.getElementById(`${param}_num`).value = preset[param];
+                    const slider = document.getElementById(param);
+                    const number = document.getElementById(`${param}_num`);
+                    
+                    if (slider && number) {
+                        slider.value = preset[param];
+                        number.value = preset[param];
                         updateParameterDisplay(param, preset[param]);
                         state.currentValues[param] = preset[param];
                     }
@@ -2055,8 +2570,17 @@ physics_data: .phdata
                 state.isModified = true;
                 updateModifiedStatus();
                 
+                // Update suspension preview
+                if (window.suspensionPreview) {
+                    suspensionPreview.updateSuspensionParameters();
+                }
+                
                 // Update SII preview
                 updateSIIPreview();
+                
+                console.log('Preset applied successfully'); // Debug log
+            } else {
+                console.log('Preset not found:', presetName); // Debug log
             }
         }
 
@@ -2151,9 +2675,12 @@ physics_data: .phdata
             
             // Apply parsed values to UI
             for (const param in values) {
-                if (document.getElementById(param)) {
-                    document.getElementById(param).value = values[param];
-                    document.getElementById(`${param}_num`).value = values[param];
+                const slider = document.getElementById(param);
+                const number = document.getElementById(`${param}_num`);
+                
+                if (slider && number) {
+                    slider.value = values[param];
+                    number.value = values[param];
                     updateParameterDisplay(param, values[param]);
                     state.currentValues[param] = values[param];
                 }
@@ -2163,6 +2690,11 @@ physics_data: .phdata
             state.currentPreset = 'custom';
             document.querySelectorAll('.preset-card').forEach(card => card.classList.remove('active'));
             document.querySelector('[data-preset="custom"]').classList.add('active');
+            
+            // Update suspension preview
+            if (window.suspensionPreview) {
+                suspensionPreview.updateSuspensionParameters();
+            }
             
             // Update SII preview
             updateSIIPreview();
@@ -2259,9 +2791,12 @@ physics_data: .phdata
                 
                 // Apply previous state
                 for (const param in previousState) {
-                    if (document.getElementById(param)) {
-                        document.getElementById(param).value = previousState[param];
-                        document.getElementById(`${param}_num`).value = previousState[param];
+                    const slider = document.getElementById(param);
+                    const number = document.getElementById(`${param}_num`);
+                    
+                    if (slider && number) {
+                        slider.value = previousState[param];
+                        number.value = previousState[param];
                         updateParameterDisplay(param, previousState[param]);
                         state.currentValues[param] = previousState[param];
                     }
@@ -2272,6 +2807,11 @@ physics_data: .phdata
                 state.currentPreset = 'custom';
                 document.querySelectorAll('.preset-card').forEach(card => card.classList.remove('active'));
                 document.querySelector('[data-preset="custom"]').classList.add('active');
+                
+                // Update suspension preview
+                if (window.suspensionPreview) {
+                    suspensionPreview.updateSuspensionParameters();
+                }
                 
                 // Update SII preview
                 updateSIIPreview();
@@ -2285,9 +2825,12 @@ physics_data: .phdata
                 
                 // Apply next state
                 for (const param in nextState) {
-                    if (document.getElementById(param)) {
-                        document.getElementById(param).value = nextState[param];
-                        document.getElementById(`${param}_num`).value = nextState[param];
+                    const slider = document.getElementById(param);
+                    const number = document.getElementById(`${param}_num`);
+                    
+                    if (slider && number) {
+                        slider.value = nextState[param];
+                        number.value = nextState[param];
                         updateParameterDisplay(param, nextState[param]);
                         state.currentValues[param] = nextState[param];
                     }
@@ -2298,6 +2841,11 @@ physics_data: .phdata
                 state.currentPreset = 'custom';
                 document.querySelectorAll('.preset-card').forEach(card => card.classList.remove('active'));
                 document.querySelector('[data-preset="custom"]').classList.add('active');
+                
+                // Update suspension preview
+                if (window.suspensionPreview) {
+                    suspensionPreview.updateSuspensionParameters();
+                }
                 
                 // Update SII preview
                 updateSIIPreview();
@@ -2315,7 +2863,7 @@ physics_data: .phdata
         }
 
         function showHelp() {
-            alert("SCS Bus Physics Editor Help:\n\n1. Select a preset or import a .sii file to get started\n2. Adjust parameters using sliders or number inputs\n3. Modified values are highlighted in blue\n4. Check the SII Preview to see the generated file\n5. Export your changes when finished\n6. Use Undo/Redo to revert changes");
+            alert("SCS Bus Physics Editor Help:\n\n1. Select a preset or import a .sii file to get started\n2. Adjust parameters using sliders or number inputs\n3. Modified values are highlighted in blue\n4. Check the SII Preview to see the generated file\n5. Export your changes when finished\n6. Use Undo/Redo to revert changes\n\nSUSPENSION PREVIEW:\n- Use 'Test Suspension' to apply a bump\n- Enable 'Auto-bump' for continuous testing\n- Watch the travel indicators (green=good, red=limit)\n- Adjust damping and stiffness to see real-time effects");
         }
     </script>
 </body>
